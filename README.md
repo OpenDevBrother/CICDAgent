@@ -82,7 +82,7 @@ Tests fail → Healer attempt 1 (confidence 72%)
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 14, React 18, Tailwind CSS, Framer Motion, Radix UI |
+| Frontend | Next.js, React 18, Tailwind CSS, Framer Motion, Radix UI |
 | Real-time | Socket.IO (live pipeline updates) |
 | Graph Viz | react-force-graph-2d (architecture timeline) |
 | AI Engine | FastAPI + LangGraph (Python) |
