@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def get_similar_past_fixes(
+    git_diff: str,
+    changed_files: list,
+    failed_tests: list,
+    top_k: int = 3,
+) -> list[dict]:
+    """Retrieve similar past healer fixes from MongoDB Atlas Vector Search."""
+    mongodb_uri = os.getenv("MONGODB_URI", "")
+
+    if not mongodb_uri:
+        logger.warning("get_similar_past_fixes: MONGODB_URI not set — returning empty.")
+        return []
+
+    try:
+        from llm.embeddings import get_embeddings
+        import pymongo
+
+        error_snippets = [
+            item.get("error", "") for item in (failed_tests or [])[:3]
+        ]
+        query_text = "\n".join([
+            git_diff,
+            str(changed_files),
+            *error_snippets,
+        ])
+
+        embeddings = get_embeddings()
+        query_vector = embeddings.embed_query(query_text)
+
+        client = pymongo.MongoClient(mongodb_uri)
+        collection = client["sentinelqa"]["healer_memory"]
+
+        pipeline = [
+            {
+                "$vectorSearch": {
+                    "index": "healer_vector_index",
+                    "path": "embedding",
+                    "queryVector": query_vector,
+                    "numCandidates": 50,
+                    "limit": top_k,
+                }
+            }
+        ]
+
+        results = list(collection.aggregate(pipeline))
+        logger.info("get_similar_past_fixes: retrieved %d similar fix(es).", len(results))
+        return results
+
+    except Exception as exc:
+        logger.warning("get_similar_past_fixes: failed — %s: %s", exc.__class__.__name__, exc)
+        return []
+
+
+def get_similar_past_test_plans(
+    changed_files: list[str],
+    git_diff: str,
+    top_k: int = 2,
+) -> list[dict[str, Any]]:
+    """Retrieve similar past test plans for the architect from MongoDB Atlas Vector Search."""
+    mongodb_uri = os.getenv("MONGODB_URI", "")
+
+    if not mongodb_uri:
+        logger.warning("get_similar_past_test_plans: MONGODB_URI not set — returning empty.")
+        return []
+
+    try:
+        from llm.embeddings import get_embeddings
+        import pymongo
+
+        query_text = "\n".join([
+            str(changed_files),
+            git_diff[:3000],
+        ])
+
+        embeddings = get_embeddings()
+        query_vector = embeddings.embed_query(query_text)
+
+        client = pymongo.MongoClient(mongodb_uri)
+        collection = client["sentinelqa"]["architect_memory"]
+
+        pipeline = [
+            {
+                "$vectorSearch": {
+                    "index": "architect_vector_index",
+                    "path": "embedding",
+                    "queryVector": query_vector,
+                    "numCandidates": 30,
+                    "limit": top_k,
+                }
+            }
+        ]
+
+        results = list(collection.aggregate(pipeline))
+        logger.info("get_similar_past_test_plans: retrieved %d plan(s).", len(results))
+        return results
+
+    except Exception as exc:
+        logger.warning("get_similar_past_test_plans: failed — %s: %s", exc.__class__.__name__, exc)
+        return []

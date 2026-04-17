@@ -1,0 +1,170 @@
+// ============================================================================
+// POST /api/agent/pipeline
+//
+// Runs the full SentinelQA pipeline:
+//   1. Reads code from GitHub MCP (or uses fallback context)
+//   2. Generates a test plan (AI-simulated for now)
+//   3. Executes tests via Playwright MCP
+//   4. Returns results
+// ============================================================================
+
+import { NextRequest, NextResponse } from "next/server";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 300; // 5 min — pipeline spawns MCP servers + runs browser tests
+
+import { AgentOrchestrator } from "@/lib/mcp/orchestrator";
+import {
+    notifyPipelineStarted,
+    notifyTestsPassed,
+    notifyTestsFailed,
+    notifyPipelineError,
+} from "@/lib/notifications/slack";
+
+export async function POST(request: NextRequest) {
+    // Defaults from env, can be overridden by request body
+    const envOwner = process.env.SENTINELQA_DEFAULT_OWNER ?? "";
+    const envRepo = process.env.SENTINELQA_DEFAULT_REPO ?? "";
+    const envBranch = process.env.SENTINELQA_DEFAULT_BRANCH ?? "main";
+    const envTargetUrl = process.env.SENTINELQA_TARGET_URL ?? "";
+
+    let owner = envOwner;
+    let repo = envRepo;
+    let branch = envBranch;
+    let target_url = envTargetUrl;
+    let slackChannel: string | undefined;
+    let body: Record<string, unknown> = {};
+
+    try {
+        try {
+            body = (await request.json()) as Record<string, unknown>;
+        } catch {
+            return NextResponse.json(
+                { error: "Invalid JSON body. Provide a valid pipeline payload." },
+                { status: 400 }
+            );
+        }
+
+        const {
+            owner: bodyOwner,
+            repo: bodyRepo,
+            branch: bodyBranch,
+            target_url: bodyTargetUrl,
+            github_token,
+            github_mcp_mode = "npx",
+            selected_pr,
+            slack_channel,
+            session_id,
+        } = body as {
+            owner?: string;
+            repo?: string;
+            branch?: string;
+            target_url?: string;
+            github_token?: string;
+            github_mcp_mode?: "docker" | "npx";
+            selected_pr?: { number?: number; title?: string; url?: string; headRef?: string; baseRef?: string };
+            slack_channel?: string;
+            session_id?: string;
+        };
+
+        // Apply overrides from body if present
+        if (bodyOwner) owner = bodyOwner;
+        if (bodyRepo) repo = bodyRepo;
+        if (bodyBranch) branch = bodyBranch;
+        if (bodyTargetUrl) target_url = bodyTargetUrl;
+
+        slackChannel = slack_channel?.trim() || undefined;
+
+        if (!owner || !repo || !target_url) {
+            return NextResponse.json(
+                { error: "Missing required fields: owner, repo, target_url (set in .env or request body)" },
+                { status: 400 }
+            );
+        }
+
+        // 🔔 Notify Slack: pipeline manually started with optional PR context and channel
+        const pipelineTarget = selected_pr?.number
+            ? `${target_url} (PR #${selected_pr.number})`
+            : target_url;
+        void notifyPipelineStarted(owner, repo, branch, pipelineTarget, {
+            channel: slackChannel,
+        });
+
+        const effectiveBranch = selected_pr?.headRef || branch;
+
+        const orchestrator = new AgentOrchestrator({
+            owner,
+            repo,
+            branch: effectiveBranch,
+            targetUrl: target_url,
+            githubToken: github_token,
+            githubMcpMode: github_mcp_mode,
+            sessionId: session_id,
+            selectedPr: selected_pr?.number ? {
+                number: selected_pr.number,
+                title: selected_pr.title ?? "",
+                headRef: selected_pr.headRef ?? effectiveBranch,
+                baseRef: selected_pr.baseRef ?? branch,
+            } : undefined,
+        });
+
+        const { codeContext, testPlan, results, courier, pr } =
+            await orchestrator.runFullPipeline();
+
+        // 🔔 Notify Slack: test results (fire-and-forget — does not block response)
+        if (results.failed > 0) {
+            const failedSteps = results.results
+                .filter((r) => r.status !== "passed")
+                .map((r) => ({ step: r.name, error: r.error }));
+            void notifyTestsFailed(
+                owner, repo, target_url,
+                results.passed, results.failed, results.total,
+                results.duration_ms, results.session_id, failedSteps
+                , { channel: slackChannel }
+            );
+        } else {
+            void notifyTestsPassed(
+                owner, repo, target_url,
+                results.total, results.duration_ms, results.session_id
+                , { channel: slackChannel }
+            );
+        }
+
+        return NextResponse.json({
+            pipeline: "completed",
+            session_id: results.session_id,
+            code_context_length: codeContext.length,
+            test_plan: testPlan,
+            results: {
+                total: results.total,
+                passed: results.passed,
+                failed: results.failed,
+                duration_ms: results.duration_ms,
+                details: results.results,
+            },
+            courier: courier ? {
+                type: courier.type,
+                url: courier.url,
+                number: courier.number,
+            } : undefined,
+            pr: pr ? {
+                url: pr.url,
+                number: pr.number,
+                files: pr.files,
+            } : undefined,
+        });
+    } catch (err) {
+        const errorMessage =
+            err instanceof Error ? err.message : "Internal server error";
+        console.error("[API /agent/pipeline] Error:", errorMessage);
+
+        // 🔔 Notify Slack: pipeline error (fire-and-forget)
+        if (owner && repo) {
+            void notifyPipelineError(owner, repo, "Pipeline Execution", errorMessage, {
+                channel: slackChannel,
+            });
+        }
+
+        return NextResponse.json({ error: errorMessage }, { status: 500 });
+    }
+}

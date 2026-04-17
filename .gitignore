@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build / Next.js
+.next/
+out/
+build/
+dist/
+
+# Testing
+coverage/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+ngrok.log
+ngrok.err.log
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE / Editor
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Misc
+*.pem
+
+ai-engine/.venv/
+ai-engine/.venv-win/
+ai-engine/__pycache__/
+ai-engine/.env
+ai-engine/**/__pycache__/
+ai-engine/.pytest_cache/
+*.pyc
+
+# Axon
+.axon/
+
+# Local DB
+*.db
+*.sqlite
+
+scripts/ec2-setup.sh
