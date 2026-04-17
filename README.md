@@ -16,7 +16,9 @@ Point MindFlayer at a pull request. Five AI agents take over:
 4. **Healer** — performs root cause analysis on failures with up to 3 iterative fix attempts (circuit breaker), learns from past fixes (RAG)
 5. **Courier** — creates GitHub issues for failures, opens fix PRs with generated test files, notifies Slack and Telegram
 
-Control everything from Telegram or Slack:
+On top of that, a **Vapi voice copilot** lets you talk to the system in real time from the dashboard to inspect PRs, trigger runs, check results, navigate tabs, and ask repo questions.
+
+Control everything from Vapi voice, Telegram, or Slack:
 
 ```
 /prs              → list open pull requests
@@ -34,7 +36,7 @@ Control everything from Telegram or Slack:
 ## Architecture
 
 ```
-Telegram / Slack / Dashboard
+Vapi / Telegram / Slack / Dashboard
         |
         v
   Next.js API (port 3000)
@@ -84,6 +86,7 @@ Tests fail → Healer attempt 1 (confidence 72%)
 |---|---|
 | Frontend | Next.js, React 18, Tailwind CSS, Framer Motion, Radix UI |
 | Real-time | Socket.IO (live pipeline updates) |
+| Voice Interface | Vapi (browser voice copilot) |
 | Graph Viz | react-force-graph-2d (architecture timeline) |
 | AI Engine | FastAPI + LangGraph (Python) |
 | LLMs | AWS Bedrock — Qwen3 Coder (Architect), Claude Sonnet 4.6 (Healer), Claude Haiku 4.5 (Judge) |
@@ -133,6 +136,7 @@ mindflayer/
 │   │       │   └── status/        # GET — agent health
 │   │       ├── auth/              # NextAuth routes
 │   │       ├── courier/           # PR/Issue creation
+│   │       ├── vapi/              # Voice tool routes
 │   │       └── watchdog/          # CloudWatch metrics + anomaly detection
 │   ├── lib/
 │   │   ├── mcp/
@@ -149,8 +153,9 @@ mindflayer/
 │   │   │   ├── telegram.ts  # Telegram Bot API
 │   │   │   └── slack.ts     # Slack Webhooks
 │   │   ├── notion/           # Notion reporting
+│   │   ├── vapi/             # Voice assistant config + actions
 │   │   └── db/               # User CRUD (DynamoDB/MongoDB)
-│   └── components/           # UI components (shadcn/ui)
+│   └── components/           # UI components (including Vapi voice panel)
 │
 ├── ai-engine/                # Python AI service
 │   ├── server.py             # FastAPI server (port 8000)
@@ -172,7 +177,6 @@ mindflayer/
 │   ├── telegram-bot.ts       # Telegram Boss Agent (9 commands)
 │   ├── slack-bot.ts          # Slack Boss Agent (9 commands)
 │   ├── create-dynamodb-tables.ts
-│   ├── ec2-setup.sh          # Legacy EC2 deployment script
 │   └── deploy/
 │       ├── providers/oci.sh  # OCI deployment orchestrator
 │       └── oci/              # OCI modular deployment scripts
@@ -233,6 +237,9 @@ NOTION_DATABASE_ID=<notion-db-id>
 TELEGRAM_BOT_TOKEN=<telegram-bot-token>
 TELEGRAM_CHAT_ID=<telegram-chat-id>
 AXON_API_URL=http://localhost:8420
+NEXT_PUBLIC_VAPI_PUBLIC_KEY=<vapi-public-key>
+NEXT_PUBLIC_VAPI_ASSISTANT_ID=<vapi-assistant-id>
+NEXT_PUBLIC_VAPI_SERVER_URL=<public-app-url>
 ```
 
 Create `ai-engine/.env`:
@@ -284,14 +291,7 @@ npm run slack:bot
 cd ai-engine && python server.py
 ```
 
-### 6. Deploy to AWS EC2
-
-```bash
-# Launch t3.small instance with setup script
-bash scripts/ec2-setup.sh
-```
-
-### 7. Deploy to OCI Always Free (modular path)
+### 6. Deploy to OCI Always Free (modular path)
 
 ```bash
 cp scripts/deploy/oci/oci-free-tier.env.example scripts/deploy/oci/oci-free-tier.env
@@ -324,6 +324,14 @@ bash scripts/deploy/providers/oci.sh verify scripts/deploy/oci/oci-free-tier.env
 ## Slack Commands
 
 Same as Telegram, except `/status` → `/showstatus` and `/help` → `/mf-help` (Slack reserves those).
+
+---
+
+## Voice Copilot
+
+- Built with **Vapi** for real-time browser voice conversations
+- Can list PRs, run a PR validation flow, check pipeline status, answer repo questions, and navigate the main dashboard workspaces
+- Uses the same backend actions as Slack and Telegram, so voice is a first-class control surface rather than a separate demo layer
 
 ---
 
